@@ -1,0 +1,919 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# =============================================================================
+# Aspire 13 + TUnit Project Template Generator
+# Creates a clean .NET 10 solution with Aspire orchestration, Domain library,
+# API project, and TUnit test project.
+# =============================================================================
+
+# Colors for output
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+NC='\033[0m' # No Color
+
+print_step() {
+    echo -e "${BLUE}==>${NC} $1"
+}
+
+print_success() {
+    echo -e "${GREEN}✓${NC} $1"
+}
+
+print_warning() {
+    echo -e "${YELLOW}⚠${NC} $1"
+}
+
+print_error() {
+    echo -e "${RED}✗${NC} $1"
+}
+
+# =============================================================================
+# Prerequisites Check
+# =============================================================================
+
+check_prerequisites() {
+    print_step "Checking prerequisites..."
+
+    # Check .NET SDK
+    if ! command -v dotnet &> /dev/null; then
+        print_error ".NET SDK is not installed. Please install .NET 10 SDK first."
+        exit 1
+    fi
+
+    local dotnet_version
+    dotnet_version=$(dotnet --version | cut -d'.' -f1)
+    if [[ "$dotnet_version" -lt 10 ]]; then
+        print_error ".NET 10 or higher is required. Current version: $(dotnet --version)"
+        exit 1
+    fi
+    print_success ".NET SDK $(dotnet --version) found"
+
+    # Check Aspire CLI
+    if ! command -v aspire &> /dev/null; then
+        print_error "Aspire CLI not found. Install: curl -fsSL https://dot.net/install-aspire.sh | bash"
+        exit 1
+    fi
+    print_success "Aspire CLI found"
+
+    # Check uuidgen
+    if ! command -v uuidgen &> /dev/null; then
+        print_error "uuidgen is not installed. Please install util-linux."
+        exit 1
+    fi
+    print_success "uuidgen found"
+}
+
+# =============================================================================
+# Get Project Name
+# =============================================================================
+
+to_kebab_case() {
+    # Convert PascalCase/camelCase to kebab-case
+    # NewProject -> new-project
+    # MyAPIService -> my-api-service
+    echo "$1" | sed -E 's/([a-z0-9])([A-Z])/\1-\2/g' | tr '[:upper:]' '[:lower:]'
+}
+
+show_usage() {
+    echo "Usage: forge <ProjectName>"
+    echo ""
+    echo "  ProjectName    PascalCase name (e.g., MySuperDuperAwesomeProject)"
+    echo "                 Creates folder: my-super-duper-awesome-project/"
+    exit 1
+}
+
+get_project_name() {
+    if [[ -z "${1:-}" ]]; then
+        show_usage
+    fi
+
+    PROJECT_NAME="$1"
+
+    # Validate project name (alphanumeric, starts with letter)
+    if [[ ! "$PROJECT_NAME" =~ ^[A-Za-z][A-Za-z0-9]*$ ]]; then
+        print_error "Project name must be alphanumeric and start with a letter."
+        exit 1
+    fi
+
+    FOLDER_NAME=$(to_kebab_case "$PROJECT_NAME")
+
+    print_success "Project name: $PROJECT_NAME"
+    print_success "Folder name: $FOLDER_NAME"
+}
+
+# =============================================================================
+# Create Project Folder
+# =============================================================================
+
+create_project_folder() {
+    if [[ -d "$FOLDER_NAME" ]]; then
+        print_error "Folder '$FOLDER_NAME' already exists."
+        exit 1
+    fi
+
+    print_step "Creating project folder: $FOLDER_NAME"
+    mkdir -p "$FOLDER_NAME"
+    cd "$FOLDER_NAME"
+    print_success "Created and entered $FOLDER_NAME"
+}
+
+# =============================================================================
+# Create Directory Structure
+# =============================================================================
+
+create_directories() {
+    print_step "Creating directory structure..."
+
+    mkdir -p .aspire
+    mkdir -p aspire/AppHost/Properties
+    mkdir -p aspire/ServiceDefaults
+    mkdir -p src/Api/Properties
+    mkdir -p src/Domain
+    mkdir -p tests/Unit/Hooks
+
+    print_success "Directories created"
+}
+
+# =============================================================================
+# Generate Files
+# =============================================================================
+
+generate_user_secrets_id() {
+    uuidgen | tr '[:upper:]' '[:lower:]'
+}
+
+create_solution_file() {
+    print_step "Creating solution file..."
+
+    cat > "${PROJECT_NAME}.slnx" << 'EOF'
+<Solution>
+  <Folder Name="/aspire/">
+    <Project Path="aspire/AppHost/AppHost.csproj" />
+    <Project Path="aspire/ServiceDefaults/ServiceDefaults.csproj" />
+  </Folder>
+  <Folder Name="/src/">
+    <Project Path="src/Api/Api.csproj" />
+    <Project Path="src/Domain/Domain.csproj" />
+  </Folder>
+  <Folder Name="/tests/">
+    <Project Path="tests/Unit/Unit.csproj" />
+  </Folder>
+</Solution>
+EOF
+
+    print_success "Created ${PROJECT_NAME}.slnx"
+}
+
+create_global_json() {
+    print_step "Creating global.json..."
+
+    cat > global.json << 'EOF'
+{
+  "sdk": {
+    "version": "10.0.101",
+    "rollForward": "latestMinor"
+  },
+  "test": {
+    "runner": "Microsoft.Testing.Platform"
+  }
+}
+EOF
+
+    print_success "Created global.json"
+}
+
+create_editorconfig() {
+    print_step "Creating .editorconfig..."
+
+    cat > .editorconfig << 'EOF'
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+indent_style = space
+indent_size = 4
+insert_final_newline = true
+trim_trailing_whitespace = true
+
+[*.md]
+trim_trailing_whitespace = false
+
+[*.{csproj,props,targets,slnx}]
+indent_size = 2
+
+[*.{json,yml,yaml}]
+indent_size = 2
+
+[*.cs]
+# Organize usings
+dotnet_sort_system_directives_first = true
+dotnet_separate_import_directive_groups = false
+csharp_using_directive_placement = outside_namespace:error
+
+# Namespace preferences
+csharp_style_namespace_declarations = file_scoped:error
+
+# var preferences - always use var
+csharp_style_var_for_built_in_types = true:error
+csharp_style_var_when_type_is_apparent = true:error
+csharp_style_var_elsewhere = true:error
+
+# Expression-bodied members - when single line
+csharp_style_expression_bodied_methods = when_on_single_line:suggestion
+csharp_style_expression_bodied_constructors = when_on_single_line:suggestion
+csharp_style_expression_bodied_operators = when_on_single_line:suggestion
+csharp_style_expression_bodied_properties = when_on_single_line:suggestion
+csharp_style_expression_bodied_indexers = when_on_single_line:suggestion
+csharp_style_expression_bodied_accessors = when_on_single_line:suggestion
+csharp_style_expression_bodied_lambdas = when_on_single_line:suggestion
+csharp_style_expression_bodied_local_functions = when_on_single_line:suggestion
+
+# Pattern matching preferences
+csharp_style_pattern_matching_over_is_with_cast_check = true:error
+csharp_style_pattern_matching_over_as_with_null_check = true:error
+csharp_style_prefer_switch_expression = true:suggestion
+csharp_style_prefer_pattern_matching = true:suggestion
+csharp_style_prefer_not_pattern = true:suggestion
+
+# Null-checking preferences
+csharp_style_throw_expression = true:suggestion
+csharp_style_conditional_delegate_call = true:suggestion
+csharp_style_prefer_null_check_over_type_check = true:suggestion
+
+# this. preferences - never use this.
+dotnet_style_qualification_for_field = false:error
+dotnet_style_qualification_for_property = false:error
+dotnet_style_qualification_for_method = false:error
+dotnet_style_qualification_for_event = false:error
+
+# Language keywords vs BCL types
+dotnet_style_predefined_type_for_locals_parameters_members = true:error
+dotnet_style_predefined_type_for_member_access = true:error
+
+# Modifier preferences
+dotnet_style_require_accessibility_modifiers = for_non_interface_members:error
+csharp_preferred_modifier_order = public,private,protected,internal,file,static,extern,new,virtual,abstract,sealed,override,readonly,unsafe,required,volatile,async:error
+
+# Braces - always required
+csharp_prefer_braces = true:error
+
+# New line preferences (Allman style)
+csharp_new_line_before_open_brace = all
+csharp_new_line_before_else = true
+csharp_new_line_before_catch = true
+csharp_new_line_before_finally = true
+csharp_new_line_before_members_in_object_initializers = true
+csharp_new_line_before_members_in_anonymous_types = true
+csharp_new_line_between_query_expression_clauses = true
+
+# Indentation preferences
+csharp_indent_case_contents = true
+csharp_indent_switch_labels = true
+csharp_indent_labels = one_less_than_current
+csharp_indent_block_contents = true
+csharp_indent_braces = false
+
+# Space preferences
+csharp_space_after_cast = false
+csharp_space_after_keywords_in_control_flow_statements = true
+csharp_space_between_parentheses = false
+csharp_space_before_colon_in_inheritance_clause = true
+csharp_space_after_colon_in_inheritance_clause = true
+csharp_space_around_binary_operators = before_and_after
+csharp_space_between_method_declaration_parameter_list_parentheses = false
+csharp_space_between_method_declaration_empty_parameter_list_parentheses = false
+csharp_space_between_method_declaration_name_and_open_parenthesis = false
+csharp_space_between_method_call_parameter_list_parentheses = false
+csharp_space_between_method_call_empty_parameter_list_parentheses = false
+csharp_space_between_method_call_name_and_opening_parenthesis = false
+csharp_space_after_comma = true
+csharp_space_before_comma = false
+csharp_space_after_dot = false
+csharp_space_before_dot = false
+csharp_space_after_semicolon_in_for_statement = true
+csharp_space_before_semicolon_in_for_statement = false
+csharp_space_around_declaration_statements = false
+csharp_space_before_open_square_brackets = false
+csharp_space_between_empty_square_brackets = false
+csharp_space_between_square_brackets = false
+
+# Wrapping preferences
+csharp_preserve_single_line_statements = false
+csharp_preserve_single_line_blocks = true
+
+# Naming conventions
+dotnet_naming_rule.private_fields_should_be_camel_case.severity = error
+dotnet_naming_rule.private_fields_should_be_camel_case.symbols = private_fields
+dotnet_naming_rule.private_fields_should_be_camel_case.style = camel_case_style
+
+dotnet_naming_symbols.private_fields.applicable_kinds = field
+dotnet_naming_symbols.private_fields.applicable_accessibilities = private, protected, private_protected
+dotnet_naming_symbols.private_fields.required_modifiers =
+
+dotnet_naming_style.camel_case_style.capitalization = camel_case
+
+dotnet_naming_rule.interfaces_should_be_prefixed_with_i.severity = error
+dotnet_naming_rule.interfaces_should_be_prefixed_with_i.symbols = interfaces
+dotnet_naming_rule.interfaces_should_be_prefixed_with_i.style = interface_style
+
+dotnet_naming_symbols.interfaces.applicable_kinds = interface
+dotnet_naming_symbols.interfaces.applicable_accessibilities = *
+
+dotnet_naming_style.interface_style.required_prefix = I
+dotnet_naming_style.interface_style.capitalization = pascal_case
+
+dotnet_naming_rule.types_should_be_pascal_case.severity = error
+dotnet_naming_rule.types_should_be_pascal_case.symbols = types
+dotnet_naming_rule.types_should_be_pascal_case.style = pascal_case_style
+
+dotnet_naming_symbols.types.applicable_kinds = class, struct, enum, delegate
+dotnet_naming_symbols.types.applicable_accessibilities = *
+
+dotnet_naming_style.pascal_case_style.capitalization = pascal_case
+
+dotnet_naming_rule.methods_should_be_pascal_case.severity = error
+dotnet_naming_rule.methods_should_be_pascal_case.symbols = methods
+dotnet_naming_rule.methods_should_be_pascal_case.style = pascal_case_style
+
+dotnet_naming_symbols.methods.applicable_kinds = method
+dotnet_naming_symbols.methods.applicable_accessibilities = *
+
+dotnet_naming_rule.properties_should_be_pascal_case.severity = error
+dotnet_naming_rule.properties_should_be_pascal_case.symbols = properties
+dotnet_naming_rule.properties_should_be_pascal_case.style = pascal_case_style
+
+dotnet_naming_symbols.properties.applicable_kinds = property
+dotnet_naming_symbols.properties.applicable_accessibilities = *
+
+dotnet_naming_rule.constants_should_be_pascal_case.severity = error
+dotnet_naming_rule.constants_should_be_pascal_case.symbols = constants
+dotnet_naming_rule.constants_should_be_pascal_case.style = pascal_case_style
+
+dotnet_naming_symbols.constants.applicable_kinds = field
+dotnet_naming_symbols.constants.applicable_accessibilities = *
+dotnet_naming_symbols.constants.required_modifiers = const
+
+# Simplification preferences
+dotnet_style_object_initializer = true:suggestion
+dotnet_style_collection_initializer = true:suggestion
+dotnet_style_explicit_tuple_names = true:error
+dotnet_style_prefer_inferred_tuple_names = true:suggestion
+dotnet_style_prefer_inferred_anonymous_type_member_names = true:suggestion
+dotnet_style_prefer_auto_properties = true:suggestion
+dotnet_style_prefer_conditional_expression_over_assignment = true:suggestion
+dotnet_style_prefer_conditional_expression_over_return = true:suggestion
+dotnet_style_prefer_compound_assignment = true:suggestion
+dotnet_style_prefer_simplified_interpolation = true:suggestion
+dotnet_style_prefer_simplified_boolean_expressions = true:suggestion
+csharp_style_prefer_local_over_anonymous_function = true:suggestion
+csharp_style_prefer_index_operator = true:suggestion
+csharp_style_prefer_range_operator = true:suggestion
+csharp_style_implicit_object_creation_when_type_is_apparent = true:suggestion
+csharp_style_prefer_tuple_swap = true:suggestion
+csharp_style_prefer_utf8_string_literals = true:suggestion
+csharp_style_inlined_variable_declaration = true:suggestion
+csharp_style_deconstructed_variable_declaration = true:suggestion
+csharp_style_unused_value_assignment_preference = discard_variable:suggestion
+csharp_style_unused_value_expression_statement_preference = discard_variable:silent
+
+# Primary constructor preferences
+csharp_style_prefer_primary_constructors = true:suggestion
+
+# Unnecessary code rules
+dotnet_code_quality_unused_parameters = all:suggestion
+dotnet_remove_unnecessary_suppression_exclusions = none
+
+# No #region allowed
+dotnet_diagnostic.IDE0076.severity = error
+EOF
+
+    print_success "Created .editorconfig"
+}
+
+create_aspire_settings() {
+    print_step "Creating .aspire/settings.json..."
+
+    cat > .aspire/settings.json << 'EOF'
+{
+  "appHostPath": "../aspire/AppHost/AppHost.csproj"
+}
+EOF
+
+    print_success "Created .aspire/settings.json"
+}
+
+create_apphost_project() {
+    print_step "Creating aspire/AppHost..."
+
+    local secrets_id
+    secrets_id=$(generate_user_secrets_id)
+
+    cat > aspire/AppHost/AppHost.csproj << EOF
+<Project Sdk="Aspire.AppHost.Sdk/13.0.2">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <UserSecretsId>${secrets_id}</UserSecretsId>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Api/Api.csproj" />
+  </ItemGroup>
+
+</Project>
+EOF
+
+    cat > aspire/AppHost/AppHost.cs << 'EOF'
+var builder = DistributedApplication.CreateBuilder(args);
+
+builder.AddProject<Projects.Api>("api")
+    .WithHttpHealthCheck("/health");
+
+builder.Build().Run();
+EOF
+
+    cat > aspire/AppHost/appsettings.json << 'EOF'
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning",
+      "Aspire.Hosting.Dcp": "Warning"
+    }
+  }
+}
+EOF
+
+    cat > aspire/AppHost/appsettings.Development.json << 'EOF'
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  }
+}
+EOF
+
+    cat > aspire/AppHost/Properties/launchSettings.json << 'EOF'
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "https": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "applicationUrl": "https://localhost:17264;http://localhost:15165",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DOTNET_ENVIRONMENT": "Development",
+        "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "https://localhost:21296",
+        "ASPIRE_DASHBOARD_MCP_ENDPOINT_URL": "https://localhost:23194",
+        "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "https://localhost:22044"
+      }
+    },
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": true,
+      "applicationUrl": "http://localhost:15165",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development",
+        "DOTNET_ENVIRONMENT": "Development",
+        "ASPIRE_DASHBOARD_OTLP_ENDPOINT_URL": "http://localhost:19183",
+        "ASPIRE_DASHBOARD_MCP_ENDPOINT_URL": "http://localhost:18101",
+        "ASPIRE_RESOURCE_SERVICE_ENDPOINT_URL": "http://localhost:20121"
+      }
+    }
+  }
+}
+EOF
+
+    print_success "Created aspire/AppHost files"
+}
+
+create_service_defaults_project() {
+    print_step "Creating aspire/ServiceDefaults..."
+
+    cat > aspire/ServiceDefaults/ServiceDefaults.csproj << 'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <IsAspireSharedProject>true</IsAspireSharedProject>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <FrameworkReference Include="Microsoft.AspNetCore.App" />
+
+    <PackageReference Include="Microsoft.Extensions.Http.Resilience" Version="10.*" />
+    <PackageReference Include="Microsoft.Extensions.ServiceDiscovery" Version="10.*" />
+    <PackageReference Include="OpenTelemetry.Exporter.OpenTelemetryProtocol" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Extensions.Hosting" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.AspNetCore" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Http" Version="1.*" />
+    <PackageReference Include="OpenTelemetry.Instrumentation.Runtime" Version="1.*" />
+  </ItemGroup>
+
+</Project>
+EOF
+
+    cat > aspire/ServiceDefaults/Extensions.cs << 'EOF'
+using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Diagnostics.HealthChecks;
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Diagnostics.HealthChecks;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.ServiceDiscovery;
+using OpenTelemetry;
+using OpenTelemetry.Metrics;
+using OpenTelemetry.Trace;
+
+namespace Microsoft.Extensions.Hosting;
+
+public static class Extensions
+{
+    private const string HealthEndpointPath = "/health";
+    private const string AlivenessEndpointPath = "/alive";
+
+    public static TBuilder AddServiceDefaults<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        builder.ConfigureOpenTelemetry();
+
+        builder.AddDefaultHealthChecks();
+
+        builder.Services.AddServiceDiscovery();
+
+        builder.Services.ConfigureHttpClientDefaults(http =>
+        {
+            http.AddStandardResilienceHandler();
+            http.AddServiceDiscovery();
+        });
+
+        return builder;
+    }
+
+    public static TBuilder ConfigureOpenTelemetry<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        builder.Logging.AddOpenTelemetry(logging =>
+        {
+            logging.IncludeFormattedMessage = true;
+            logging.IncludeScopes = true;
+        });
+
+        builder.Services.AddOpenTelemetry()
+            .WithMetrics(metrics =>
+            {
+                metrics.AddAspNetCoreInstrumentation()
+                    .AddHttpClientInstrumentation()
+                    .AddRuntimeInstrumentation();
+            })
+            .WithTracing(tracing =>
+            {
+                tracing.AddSource(builder.Environment.ApplicationName)
+                    .AddAspNetCoreInstrumentation(tracing =>
+                        tracing.Filter = context =>
+                            !context.Request.Path.StartsWithSegments(HealthEndpointPath)
+                            && !context.Request.Path.StartsWithSegments(AlivenessEndpointPath)
+                    )
+                    .AddHttpClientInstrumentation();
+            });
+
+        builder.AddOpenTelemetryExporters();
+
+        return builder;
+    }
+
+    private static TBuilder AddOpenTelemetryExporters<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        var useOtlpExporter = !string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOINT"]);
+        if (useOtlpExporter)
+        {
+            builder.Services.AddOpenTelemetry().UseOtlpExporter();
+        }
+
+        return builder;
+    }
+
+    public static TBuilder AddDefaultHealthChecks<TBuilder>(this TBuilder builder) where TBuilder : IHostApplicationBuilder
+    {
+        builder.Services.AddHealthChecks()
+            .AddCheck("self", () => HealthCheckResult.Healthy(), ["live"]);
+
+        return builder;
+    }
+
+    public static WebApplication MapDefaultEndpoints(this WebApplication app)
+    {
+        if (app.Environment.IsDevelopment())
+        {
+            app.MapHealthChecks(HealthEndpointPath);
+
+            app.MapHealthChecks(AlivenessEndpointPath, new HealthCheckOptions
+            {
+                Predicate = r => r.Tags.Contains("live")
+            });
+        }
+
+        return app;
+    }
+}
+EOF
+
+    print_success "Created aspire/ServiceDefaults files"
+}
+
+create_api_project() {
+    print_step "Creating src/Api..."
+
+    cat > src/Api/Api.csproj << 'EOF'
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../aspire/ServiceDefaults/ServiceDefaults.csproj" />
+    <ProjectReference Include="../Domain/Domain.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Microsoft.AspNetCore.OpenApi" Version="10.*" />
+  </ItemGroup>
+
+</Project>
+EOF
+
+    cat > src/Api/Program.cs << 'EOF'
+var builder = WebApplication.CreateBuilder(args);
+
+builder.AddServiceDefaults();
+builder.Services.AddProblemDetails();
+builder.Services.AddOpenApi();
+
+var app = builder.Build();
+
+app.UseExceptionHandler();
+
+if (app.Environment.IsDevelopment())
+{
+    app.MapOpenApi();
+}
+
+app.MapGet("/", () => "API is running");
+
+app.MapDefaultEndpoints();
+
+app.Run();
+EOF
+
+    cat > src/Api/appsettings.json << 'EOF'
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  },
+  "AllowedHosts": "*"
+}
+EOF
+
+    cat > src/Api/appsettings.Development.json << 'EOF'
+{
+  "Logging": {
+    "LogLevel": {
+      "Default": "Information",
+      "Microsoft.AspNetCore": "Warning"
+    }
+  }
+}
+EOF
+
+    cat > src/Api/Properties/launchSettings.json << 'EOF'
+{
+  "$schema": "https://json.schemastore.org/launchsettings.json",
+  "profiles": {
+    "http": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "http://localhost:5405",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    },
+    "https": {
+      "commandName": "Project",
+      "dotnetRunMessages": true,
+      "launchBrowser": false,
+      "applicationUrl": "https://localhost:7351;http://localhost:5405",
+      "environmentVariables": {
+        "ASPNETCORE_ENVIRONMENT": "Development"
+      }
+    }
+  }
+}
+EOF
+
+    print_success "Created src/Api files"
+}
+
+create_domain_project() {
+    print_step "Creating src/Domain..."
+
+    cat > src/Domain/Domain.csproj << 'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+</Project>
+EOF
+
+    print_success "Created src/Domain files"
+}
+
+create_unit_test_project() {
+    print_step "Creating tests/Unit..."
+
+    cat > tests/Unit/Unit.csproj << 'EOF'
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net10.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="TUnit" Version="0.*" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="../../src/Domain/Domain.csproj" />
+  </ItemGroup>
+
+</Project>
+EOF
+
+    cat > tests/Unit/GlobalUsings.cs << 'EOF'
+global using TUnit.Assertions;
+global using TUnit.Assertions.Extensions;
+global using TUnit.Core;
+EOF
+
+    cat > tests/Unit/SampleTests.cs << 'EOF'
+namespace Unit;
+
+public class SampleTests
+{
+    [Before(Test)]
+    public async Task BeforeEachTest()
+    {
+        await Task.CompletedTask;
+    }
+
+    [After(Test)]
+    public async Task AfterEachTest()
+    {
+        await Task.CompletedTask;
+    }
+
+    [Test]
+    public async Task SampleTest_ShouldPass()
+    {
+        var result = 1 + 1;
+        await Assert.That(result).IsEqualTo(2);
+    }
+
+    [Test]
+    [Skip("Example of skipped test")]
+    public async Task SkippedTest_Example()
+    {
+        var value = true;
+        await Assert.That(value).IsTrue();
+    }
+}
+EOF
+
+    cat > tests/Unit/Hooks/AssemblyHooks.cs << 'EOF'
+namespace Unit.Hooks;
+
+public class AssemblyHooks
+{
+    [Before(Assembly)]
+    public static async Task BeforeAssembly(AssemblyHookContext context)
+    {
+        await Task.CompletedTask;
+    }
+
+    [After(Assembly)]
+    public static async Task AfterAssembly(AssemblyHookContext context)
+    {
+        await Task.CompletedTask;
+    }
+}
+EOF
+
+    print_success "Created tests/Unit files"
+}
+
+# =============================================================================
+# Restore and Build
+# =============================================================================
+
+restore_and_build() {
+    print_step "Restoring packages..."
+    dotnet restore "${PROJECT_NAME}.slnx" --verbosity quiet
+    print_success "Packages restored"
+
+    print_step "Building solution..."
+    if dotnet build "${PROJECT_NAME}.slnx" --verbosity quiet --no-restore; then
+        print_success "Build succeeded"
+    else
+        print_warning "Build had issues - check output above"
+    fi
+}
+
+run_tests() {
+    print_step "Running tests..."
+    if dotnet test --project tests/Unit/Unit.csproj --verbosity quiet --no-build; then
+        print_success "Tests passed"
+    else
+        print_warning "Some tests failed - check output above"
+    fi
+}
+
+# =============================================================================
+# Main
+# =============================================================================
+
+main() {
+    echo ""
+    echo -e "${BLUE}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${BLUE}║${NC}     Aspire 13 + TUnit Project Template Generator            ${BLUE}║${NC}"
+    echo -e "${BLUE}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+
+    check_prerequisites
+    get_project_name "${1:-}"
+
+    echo ""
+    create_project_folder
+    echo ""
+
+    create_directories
+    create_solution_file
+    create_global_json
+    create_editorconfig
+    create_aspire_settings
+    create_apphost_project
+    create_service_defaults_project
+    create_api_project
+    create_domain_project
+    create_unit_test_project
+
+    echo ""
+    restore_and_build
+    run_tests
+
+    echo ""
+    echo -e "${GREEN}╔══════════════════════════════════════════════════════════════╗${NC}"
+    echo -e "${GREEN}║${NC}     Project created successfully!                            ${GREEN}║${NC}"
+    echo -e "${GREEN}╚══════════════════════════════════════════════════════════════╝${NC}"
+    echo ""
+    echo "Project structure:"
+    echo "  ${FOLDER_NAME}/"
+    echo "  ├── ${PROJECT_NAME}.slnx"
+    echo "  ├── aspire/"
+    echo "  │   ├── AppHost/        (Aspire orchestration)"
+    echo "  │   └── ServiceDefaults/ (Shared service configuration)"
+    echo "  ├── src/"
+    echo "  │   ├── Api/            (Web API project)"
+    echo "  │   └── Domain/         (Domain logic - pure)"
+    echo "  └── tests/"
+    echo "      └── Unit/           (TUnit tests)"
+    echo ""
+    echo "Next steps:"
+    echo "  cd ${FOLDER_NAME}"
+    echo "  aspire run"
+    echo ""
+}
+
+main "$@"
