@@ -34,6 +34,26 @@ cd /path/to/your/projects
 curl -fsSL https://raw.githubusercontent.com/mithgroth/aspire-forge/main/forge | bash -s -- MySuperDuperAwesomeProject
 ```
 
+## Usage
+
+```bash
+./forge <ProjectName>
+```
+
+- **ProjectName**: PascalCase name for your project (e.g., `MyAwesomeApp`)
+- Creates a folder using kebab-case (e.g., `my-awesome-app/`)
+- Must be alphanumeric and start with a letter
+
+### Examples
+
+```bash
+# Creates folder: my-project/
+./forge MyProject
+
+# Creates folder: awesome-api-service/
+./forge AwesomeApiService
+```
+
 ## What's Included
 
 ### Aspire 13
